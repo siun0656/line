@@ -99,6 +99,9 @@ h1 small{font-size:16px;color:var(--muted);margin-left:8px}
   #tools{width:auto;max-height:25vh;grid-template-columns:repeat(auto-fill,minmax(84px,1fr))}
   #opts{width:auto;max-height:30vh}
 }
+.tab{padding:9px 14px;font-size:18px}
+.b.dis{opacity:.4}
+.hint{font-size:15px;line-height:1.45;color:var(--muted);margin:2px 2px 4px}
 </style>
 </head>
 <body>
@@ -269,179 +272,267 @@ var SHAPES=[
 ];
 
 /* ============================================================
-   모드 1: 대칭축 긋기
+   공통: 유형별 30문제 세션
    ============================================================ */
-var A={order:[],pos:-1,shape:null,found:[],line:null,drawing:false,solved:false,reveal:false,last:null};
-function A_next(){
-  if(!A.order.length||A.pos>=A.order.length-1){A.order=shuffle(SHAPES.map(function(_,i){return i;}));A.pos=-1;}
-  A.pos++;A.shape=SHAPES[A.order[A.pos]];A.found=[];A.line=null;A.solved=false;A.reveal=false;A.last=null;fx.fold=null;
-  setPrompt('손가락(펜)으로 대칭축을 그어 보세요.','도형 '+(A.pos+1)+' / '+SHAPES.length+'  ·  대칭축이 없는 도형도 있어요!');
-  setMsg('도형을 잘 보고, 반으로 접었을 때 완전히 겹치는 선을 그어요.','');
+var NQ=30;
+var SESS={};
+var LET='ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌ';
+var fin=null;
+function sessNew(id){SESS[id]={i:0,score:0,solved:[],deck:[]};return SESS[id];}
+function sessSub(id,extra){var s=SESS[id];return '문제 '+(s.i+1)+' / '+NQ+'  ·  맞힌 문제 '+s.score+'개'+(extra?'  ·  '+extra:'');}
+function sessSolve(id){var s=SESS[id];if(!s.solved[s.i]){s.solved[s.i]=true;s.score++;}}
+function sessNext(id,loader){var s=SESS[id];if(s.i>=NQ-1)finishDeck(id);else{s.i++;loader();}}
+function finishDeck(id){
+  var s=SESS[id];fin={id:id,score:s.score};fx.fold=null;fx.conf=[];confetti(500,220,130);
+  setPrompt('30문제를 모두 풀었어요!','맞힌 문제 '+s.score+' / '+NQ);
+  setMsg(s.score>=27?'정말 대단해요! 선대칭 마스터예요!':s.score>=20?'아주 잘했어요! 조금만 더 하면 마스터!':'다시 도전해서 더 많이 맞혀 봐요!','ok');
+  renderButtons();
+}
+function drawFinish(){
+  ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=P.ink;
+  ctx.font="70px 'Jua','Gowun Dodum','Malgun Gothic',sans-serif";ctx.fillText('수고했어요!',500,210);
+  ctx.font="46px 'Jua','Gowun Dodum','Malgun Gothic',sans-serif";ctx.fillText('맞힌 문제  '+fin.score+' / '+NQ,500,320);
+  var st=Math.max(0,Math.min(5,Math.round(fin.score/NQ*5)));
+  for(var i=0;i<5;i++){
+    var pts=starPts(46,19),cx=300+i*100,cy=440;
+    ctx.beginPath();pts.forEach(function(p,k){if(k)ctx.lineTo(cx+p[0],cy+p[1]);else ctx.moveTo(cx+p[0],cy+p[1]);});ctx.closePath();
+    ctx.fillStyle=i<st?'#F5C542':P.grid;ctx.fill();ctx.lineWidth=4;ctx.strokeStyle=P.ink;ctx.lineJoin='round';ctx.stroke();
+  }
+  ctx.restore();
+}
+function rotDraw(c,shape,rot,st){
+  c.save();c.translate(C.x,C.y);c.rotate(rot*Math.PI/180);c.translate(-C.x,-C.y);shape.draw(c,st);c.restore();
+}
+function axisDir(deg){var r=deg*Math.PI/180;return {x:Math.cos(r),y:Math.sin(r)};}
+function randInt(a,b){return a+Math.floor(Math.random()*(b-a+1));}
+function pickN(arr,n,not){var pool=arr.filter(function(v){return not.indexOf(v)<0;});shuffle(pool);return pool.slice(0,n);}
+
+/* ============================================================
+   ① 대칭축 긋기 (30문제)
+   ============================================================ */
+var A={shape:null,rot:0,axes:[],found:[],line:null,drawing:false,solved:false,reveal:false};
+function A_start(){
+  var s=sessNew('A'),ids=[],i;for(i=0;i<SHAPES.length;i++)ids.push(i);
+  var r1=shuffle([0,90,0,45,135,90,0,45,135,90,0,45,90,135,0]),r2=shuffle([30,60,120,150,45,135,90,30,60,120,150,45,135,90,60]),d=[];
+  ids.forEach(function(si,k){d.push({si:si,rot:r1[k]});d.push({si:si,rot:r2[k]});});
+  s.deck=shuffle(d);A_load();
+}
+function A_load(){
+  var s=SESS.A,it=s.deck[s.i],sh=SHAPES[it.si];
+  A.shape=sh;A.rot=it.rot;A.axes=sh.axes.map(function(a){return ((a+it.rot)%180+180)%180;});
+  A.found=[];A.line=null;A.drawing=false;A.solved=false;A.reveal=false;fx.fold=null;
+  setPrompt('손가락(펜)으로 대칭축을 그어 보세요.',sessSub('A','대칭축이 없는 도형도 있어요!'));
+  setMsg('도형을 잘 보고, 반으로 접었을 때 완전히 겹치는 선을 그어요.','');renderButtons();
 }
 function A_eval(p0,p1){
   var dx=p1.x-p0.x,dy=p1.y-p0.y,len=Math.hypot(dx,dy);
   if(len<90)return -2;
   var ang=((Math.atan2(dy,dx)*180/Math.PI)%180+180)%180;
   var dist=Math.abs((C.x-p0.x)*dy-(C.y-p0.y)*dx)/len;
-  for(var i=0;i<A.shape.axes.length;i++){
-    var d=Math.abs(ang-A.shape.axes[i]);d=Math.min(d,180-d);
+  for(var i=0;i<A.axes.length;i++){
+    var d=Math.abs(ang-A.axes[i]);d=Math.min(d,180-d);
     if(d<=8&&dist<=30)return i;
   }
   return -1;
 }
-function axisDir(deg){var r=deg*Math.PI/180;return {x:Math.cos(r),y:Math.sin(r)};}
+function A_drawFn(){var sh=A.shape,rot=A.rot;return function(c,st){rotDraw(c,sh,rot,st);};}
 function A_up(){
   if(!A.drawing)return;A.drawing=false;
   var l=A.line;if(!l)return;
   var r=A_eval(l.a,l.b);
   if(r===-2){A.line=null;return;}
-  var sh=A.shape,d=unit(l.a,l.b);
-  startFold(l.a,d,function(c,st){sh.draw(c,st);});
+  startFold(l.a,unit(l.a,l.b),A_drawFn());
   if(r>=0){
     if(A.found.indexOf(r)<0)A.found.push(r);
-    var n=sh.axes.length;
+    var n=A.axes.length;
     if(A.found.length>=n){
-      A.solved=true;confetti(C.x,C.y,90);
+      A.solved=true;sessSolve('A');confetti(C.x,C.y,90);
       setMsg(n===1?'정답! 이 도형의 대칭축은 1개예요.':'대단해요! 대칭축을 모두 찾았어요. 대칭축은 '+n+'개!','ok');
-    }else{
-      setMsg('좋아요! 완전히 겹쳐요. 대칭축을 '+A.found.length+'개 찾았어요. 더 있을까요?','ok');
-    }
-  }else{
-    setMsg(sh.axes.length?'접으면 완전히 겹치지 않아요. 다시 한번 그어 볼까요?':'접어도 겹치지 않네요. 이 도형은 대칭축이 있을까요?','bad');
-  }
+    }else setMsg('좋아요! 완전히 겹쳐요. 대칭축을 '+A.found.length+'개 찾았어요. 더 있을까요?','ok');
+  }else setMsg(A.axes.length?'접으면 완전히 겹치지 않아요. 다시 한번 그어 볼까요?':'접어도 겹치지 않네요. 이 도형은 대칭축이 있을까요?','bad');
+  elSub.textContent=sessSub('A','대칭축이 없는 도형도 있어요!');
 }
-function A_draw(now){
-  var sh=A.shape;if(!sh)return;
-  sh.draw(ctx,styMain());
-  A.found.forEach(function(i){infLine(ctx,C,axisDir(sh.axes[i]),P.accent2,6,true);});
-  if(A.reveal)sh.axes.forEach(function(a){infLine(ctx,C,axisDir(a),P.green,6,true);});
-  if(A.line){
-    ctx.save();ctx.lineCap='round';ctx.lineWidth=8;ctx.strokeStyle=P.accent2;
-    ctx.beginPath();ctx.moveTo(A.line.a.x,A.line.a.y);ctx.lineTo(A.line.b.x,A.line.b.y);ctx.stroke();ctx.restore();
-  }
+function A_draw(){
+  A.shape.draw&&rotDraw(ctx,A.shape,A.rot,styMain());
+  A.found.forEach(function(i){infLine(ctx,C,axisDir(A.axes[i]),P.accent2,6,true);});
+  if(A.reveal)A.axes.forEach(function(a){infLine(ctx,C,axisDir(a),P.green,6,true);});
+  if(A.line){ctx.save();ctx.lineCap='round';ctx.lineWidth=8;ctx.strokeStyle=P.accent2;ctx.beginPath();ctx.moveTo(A.line.a.x,A.line.a.y);ctx.lineTo(A.line.b.x,A.line.b.y);ctx.stroke();ctx.restore();}
 }
 function A_buttons(){
   return [
-    {t:'접어 보기',f:function(){var l=A.line;if(l&&Math.hypot(l.b.x-l.a.x,l.b.y-l.a.y)>=90){var sh=A.shape;startFold(l.a,unit(l.a,l.b),function(c,st){sh.draw(c,st);});}else setMsg('먼저 대칭축을 한 번 그어 보세요.','');}},
+    {t:'접어 보기',f:function(){var l=A.line;if(l&&Math.hypot(l.b.x-l.a.x,l.b.y-l.a.y)>=90)startFold(l.a,unit(l.a,l.b),A_drawFn());else setMsg('먼저 대칭축을 한 번 그어 보세요.','');}},
     {t:'대칭축이 없어요',f:function(){
-      if(A.shape.axes.length===0){A.solved=true;confetti(C.x,C.y,70);setMsg('맞아요! 이 도형은 선대칭도형이 아니에요.','ok');}
+      if(A.solved)return;
+      if(A.axes.length===0){A.solved=true;sessSolve('A');confetti(C.x,C.y,70);setMsg('맞아요! 이 도형은 선대칭도형이 아니에요.','ok');elSub.textContent=sessSub('A');}
       else setMsg('다시 살펴봐요. 이 도형은 대칭축이 있어요!','bad');}},
-    {t:'정답 보기',f:function(){A.reveal=true;var n=A.shape.axes.length;setMsg(n?'초록 점선이 대칭축이에요. 모두 '+n+'개!':'이 도형은 대칭축이 없어요.','');}},
+    {t:'정답 보기',f:function(){A.reveal=true;var n=A.axes.length;setMsg(n?'초록 점선이 대칭축이에요. 모두 '+n+'개!':'이 도형은 대칭축이 없어요.','');}},
     {t:'지우기',f:function(){A.line=null;A.found=[];A.reveal=false;fx.fold=null;setMsg('다시 그어 보세요.','');}},
-    {t:'다음 도형 ▶',cls:'main',f:A_next}
+    {t:'다음 문제 ▶',cls:'main',f:function(){sessNext('A',A_load);}}
   ];
 }
 
 /* ============================================================
-   모드 2: 대칭 도형 완성하기 (모눈)
+   ② 대칭 도형 그리기 (모눈, 다양한 대칭축, 30문제)
    ============================================================ */
-var PUZ=[
- {axis:'v',chain:[[0,0],[2,-3],[5,-3],[7,0]]},
- {axis:'h',chain:[[0,0],[3,-3],[6,-3],[8,0]]},
- {axis:'v',chain:[[0,0],[3,-5],[5,-3],[7,-5],[9,0]]},
- {axis:'h',chain:[[0,0],[2,-4],[4,-2],[6,-4],[8,0]]},
- {axis:'d',pts:[[2,2],[7,3],[8,5],[6,6]]},
- {axis:'v',chain:[[0,0],[2,-5],[4,-2],[6,-6],[9,-3],[11,0]]},
- {axis:'d',pts:[[1,1],[6,2],[5,4],[8,5],[7,7]]}
-];
-var LET='ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌ';
-var B={order:[],pos:-1,pz:null,pts:[],mir:function(p){return p;},tasks:[],step:0,placed:[],tries:0,done:false};
-function B_next(){
-  if(!B.order.length||B.pos>=B.order.length-1){B.order=shuffle(PUZ.map(function(_,i){return i;}));B.pos=-1;}
-  B.pos++;var pz=PUZ[B.order[B.pos]];B.pz=pz;
-  if(pz.axis==='v'){B.pts=pz.chain.map(function(q){return [10+q[1],1+q[0]];});B.mir=function(p){return [20-p[0],p[1]];};}
-  else if(pz.axis==='h'){B.pts=pz.chain.map(function(q){return [3+q[0],7+q[1]];});B.mir=function(p){return [p[0],14-p[1]];};}
-  else{B.pts=pz.pts.map(function(q){return [q[0],q[1]];});B.mir=function(p){return [p[1],p[0]];};}
-  var on=function(p){var m=B.mir(p);return m[0]===p[0]&&m[1]===p[1];};
-  B.tasks=[];
-  for(var i=B.pts.length-1;i>=0;i--){if(!on(B.pts[i]))B.tasks.push(i);}
-  B.step=0;B.placed=[];B.tries=0;B.done=false;fx.fold=null;
-  B_prompt();
+var AXM={
+ v:{pos:function(a,k){return [10-k,1+a];},mir:function(p){return [20-p[0],p[1]];},ok:function(p){return p[0]>=1&&p[0]<=19&&p[1]>=1&&p[1]<=13;},name:'세로 대칭축',seg:[{x:500,y:0},{x:500,y:700}],side:[-1,0],lab:{x:560,y:22}},
+ h:{pos:function(a,k){return [3+a,7-k];},mir:function(p){return [p[0],14-p[1]];},ok:function(p){return p[0]>=1&&p[0]<=19&&p[1]>=1&&p[1]<=13;},name:'가로 대칭축',seg:[{x:0,y:350},{x:1000,y:350}],side:[0,-1],lab:{x:60,y:332}},
+ d1:{pos:function(a,k){return [a+k,a-k];},mir:function(p){return [p[1],p[0]];},ok:function(p){return p[0]>=0&&p[0]<=14&&p[1]>=0&&p[1]<=14;},name:'대각선 ＼ 대칭축',seg:[{x:0,y:0},{x:700,y:700}],side:[0.7071,-0.7071],lab:{x:610,y:660}},
+ d2:{pos:function(a,k){return [a+k,14-a+k];},mir:function(p){return [14-p[1],14-p[0]];},ok:function(p){return p[0]>=0&&p[0]<=14&&p[1]>=0&&p[1]<=14;},name:'대각선 ／ 대칭축',seg:[{x:0,y:700},{x:700,y:0}],side:[0.7071,0.7071],lab:{x:90,y:640}}
+};
+function convexHull(pts){
+  var p=pts.slice().sort(function(a,b){return a[0]-b[0]||a[1]-b[1];});
+  var uniq=[];p.forEach(function(q){if(!uniq.length||uniq[uniq.length-1][0]!==q[0]||uniq[uniq.length-1][1]!==q[1])uniq.push(q);});
+  p=uniq;if(p.length<3)return p;
+  function cr(o,a,b){return (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);}
+  var lo=[],up=[],i;
+  for(i=0;i<p.length;i++){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],p[i])<=0)lo.pop();lo.push(p[i]);}
+  for(i=p.length-1;i>=0;i--){while(up.length>=2&&cr(up[up.length-2],up[up.length-1],p[i])<=0)up.pop();up.push(p[i]);}
+  lo.pop();up.pop();return lo.concat(up);
 }
+function B_gen(axis,kind,nOff){
+  var M=AXM[axis],isD=axis.charAt(0)==='d';
+  for(var t=0;t<500;t++){
+    var pts=[],ok=true,i;
+    if(kind==='touch'){
+      var L=nOff+2+randInt(0,2),a0=isD?randInt(2,5):0,as=[];
+      while(as.length<nOff){var a=randInt(1,L-1);if(as.indexOf(a)<0)as.push(a);}
+      as.sort(function(x,y){return x-y;});
+      pts.push(M.pos(a0,0));
+      as.forEach(function(a){pts.push(M.pos(a0+a,randInt(1,isD?4:6)));});
+      pts.push(M.pos(a0+L,0));
+    }else{
+      var ac=(isD?5:3)+randInt(0,5),kc=randInt(3,4),cloud=[];
+      for(i=0;i<8;i++)cloud.push([ac-2+randInt(0,4),Math.max(1,kc-2+randInt(0,4))]);
+      var hull=convexHull(cloud);if(hull.length<3||hull.length>6)continue;
+      pts=hull.map(function(q){return M.pos(q[0],q[1]);});
+    }
+    for(i=0;i<pts.length;i++){if(!M.ok(pts[i])||!M.ok(M.mir(pts[i]))){ok=false;break;}}
+    if(!ok)continue;
+    return {axis:axis,kind:kind,pts:pts};
+  }
+  return {axis:'v',kind:'touch',pts:[[10,1],[7,3],[7,6],[10,8]]};
+}
+var B={pz:null,pts:[],tasks:[],step:0,placed:[],tries:0,done:false};
+function B_start(){
+  var s=sessNew('B'),ax=[],i;
+  for(i=0;i<NQ;i++)ax.push(['v','h','d1','d2'][i%4]);shuffle(ax);
+  for(i=0;i<NQ;i++){
+    var kind=i<20?'touch':'sep',n=kind==='touch'?2+Math.floor(i/5):0;
+    s.deck.push(B_gen(ax[i],kind,Math.min(5,n)));
+  }
+  B_load();
+}
+function B_load(){
+  var s=SESS.B,pz=s.deck[s.i],M=AXM[pz.axis],n=pz.pts.length,i;
+  B.pz=pz;B.pts=pz.pts;B.tasks=[];
+  var on=function(p){var m=M.mir(p);return m[0]===p[0]&&m[1]===p[1];};
+  if(pz.kind==='touch'){for(i=n-1;i>=0;i--)if(!on(pz.pts[i]))B.tasks.push(i);}
+  else{for(i=0;i<n;i++)B.tasks.push(i);}
+  B.step=0;B.placed=[];B.tries=0;B.done=false;fx.fold=null;B_prompt();
+}
+function B_mir(p){return AXM[B.pz.axis].mir(p);}
 function B_prompt(){
+  var nm=AXM[B.pz.axis].name;
   if(B.done){setPrompt('선대칭도형 완성!','대칭축을 기준으로 양쪽이 똑같아요.');return;}
   var i=B.tasks[B.step];
-  setPrompt('점 '+LET[i]+'의 대응점을 모눈에서 찍어 보세요.','대칭축에서 같은 거리, 반대쪽에 있어요.  ('+(B.step+1)+' / '+B.tasks.length+')');
+  setPrompt('점 '+LET[i]+'의 대응점을 모눈에서 찍어 보세요.',sessSub('B',nm+(B.pz.kind==='sep'?' · 떨어진 도형':'')+'  ('+(B.step+1)+'/'+B.tasks.length+')'));
   setMsg('모눈의 교점을 눌러요. 점은 순서대로 이어져요.','');
 }
-function B_axis(){
-  if(B.pz.axis==='v')return {a:{x:500,y:0},d:{x:0,y:1},p0:{x:500,y:0},p1:{x:500,y:700}};
-  if(B.pz.axis==='h')return {a:{x:0,y:350},d:{x:1,y:0},p0:{x:0,y:350},p1:{x:1000,y:350}};
-  var s=Math.SQRT1_2;return {a:{x:0,y:0},d:{x:s,y:s},p0:{x:0,y:0},p1:{x:700,y:700}};
+function B_axisInfo(){
+  var M=AXM[B.pz.axis];
+  if(B.pz.axis==='v')return {a:{x:500,y:0},d:{x:0,y:1}};
+  if(B.pz.axis==='h')return {a:{x:0,y:350},d:{x:1,y:0}};
+  if(B.pz.axis==='d1')return {a:{x:0,y:0},d:{x:Math.SQRT1_2,y:Math.SQRT1_2}};
+  return {a:{x:0,y:700},d:{x:Math.SQRT1_2,y:-Math.SQRT1_2}};
 }
 function g2w(p){return {x:p[0]*50,y:p[1]*50};}
 function B_fullPoly(){
-  var arr=B.pts.map(function(p){return g2w(p);});
-  for(var i=B.pts.length-2;i>=1;i--){var m=B.mir(B.pts[i]);if(!(m[0]===B.pts[i][0]&&m[1]===B.pts[i][1]))arr.push(g2w(m));}
+  var M=AXM[B.pz.axis],arr=B.pts.map(g2w),n=B.pts.length;
+  if(B.pz.kind==='touch'){
+    for(var i=n-2;i>=1;i--){var m=M.mir(B.pts[i]);if(!(m[0]===B.pts[i][0]&&m[1]===B.pts[i][1]))arr.push(g2w(m));}
+  }
   return arr;
+}
+function B_foldFn(){
+  var pz=B.pz,pts=B.pts,full=B_fullPoly();
+  if(pz.kind==='touch')return function(c,st){polyPath(c,full.map(function(q){return [q.x,q.y];}),0,0);fs(c,st);};
+  var orig=pts.map(function(p){var q=g2w(p);return [q.x,q.y];});
+  return function(c,st){polyPath(c,orig,0,0);fs(c,st);};
+}
+function B_finish(){
+  B.done=true;B_prompt();sessSolve('B');confetti(C.x,C.y,100);
+  setMsg('와! 선대칭도형이 완성됐어요. 접어서 확인해 볼까요?','ok');elSub.textContent=sessSub('B',AXM[B.pz.axis].name);
+  var ai=B_axisInfo();startFold(ai.a,ai.d,B_foldFn());
 }
 function B_down(p){
   if(B.done)return;
   var gx=Math.round(p.x/50),gy=Math.round(p.y/50);
   if(gx<0||gx>20||gy<0||gy>14)return;
-  var ti=B.tasks[B.step],want=B.mir(B.pts[ti]);
+  var ti=B.tasks[B.step],want=B_mir(B.pts[ti]);
   if(gx===want[0]&&gy===want[1]){
     B.placed.push({i:ti,g:want});B.step++;B.tries=0;confetti(gx*50,gy*50,14);
-    if(B.step>=B.tasks.length){
-      B.done=true;B_prompt();confetti(C.x,C.y,100);
-      setMsg('와! 선대칭도형이 완성됐어요. 접어서 확인해 볼까요?','ok');
-      var ax=B_axis();startFold(ax.a,ax.d,function(c,st){polyPath(c,B_fullPoly().map(function(q){return [q.x,q.y];}),0,0);fs(c,st);});
-    }else{B_prompt();setMsg('정답! 다음 점도 찾아봐요.','ok');}
+    if(B.step>=B.tasks.length)B_finish();else{B_prompt();setMsg('정답! 다음 점도 찾아봐요.','ok');}
   }else{
     B.tries++;missAt({x:gx*50,y:gy*50});
-    setMsg(B.tries>=2?'힌트: 대칭축까지 칸 수를 세고, 반대쪽으로 같은 칸만큼 가 봐요.':'아쉬워요. 대칭축에서 같은 거리인지 확인해 봐요.','bad');
+    setMsg(B.tries>=2?'힌트: 대칭축까지 칸 수를 세고, 반대쪽으로 같은 칸만큼 가 봐요. (대각선은 대각선 방향으로 세어요)':'아쉬워요. 대칭축에서 같은 거리인지 확인해 봐요.','bad');
   }
 }
 function B_draw(now){
-  var i,ax=B_axis();
+  var i,M=AXM[B.pz.axis],ai=B_axisInfo(),touch=B.pz.kind==='touch';
   ctx.save();ctx.lineWidth=1.5;ctx.strokeStyle=P.grid;
   for(i=0;i<=20;i++){ctx.beginPath();ctx.moveTo(i*50,0);ctx.lineTo(i*50,700);ctx.stroke();}
   for(i=0;i<=14;i++){ctx.beginPath();ctx.moveTo(0,i*50);ctx.lineTo(1000,i*50);ctx.stroke();}
   ctx.restore();
-  dashedLine(ctx,ax.p0,ax.p1,P.accent2,6);
-  var lab=B.pz.axis==='v'?{x:500,y:22}:B.pz.axis==='h'?{x:60,y:335}:{x:640,y:640};
-  label(ctx,'대칭축',lab.x+(B.pz.axis==='v'?48:0),lab.y,24,P.accent2);
-  var pts=B.pts.map(g2w);
+  dashedLine(ctx,M.seg[0],M.seg[1],P.accent2,6);
+  label(ctx,'대칭축',M.lab.x,M.lab.y,24,P.accent2);
+  var pts=B.pts.map(g2w),sd=M.side;
   if(B.done){
-    polyPath(ctx,B_fullPoly().map(function(q){return [q.x,q.y];}),0,0);
-    ctx.fillStyle='rgba(243,133,136,.35)';ctx.fill();
+    if(touch){polyPath(ctx,B_fullPoly().map(function(q){return [q.x,q.y];}),0,0);ctx.fillStyle='rgba(243,133,136,.35)';ctx.fill();}
+    else{
+      polyPath(ctx,pts.map(function(q){return [q.x,q.y];}),0,0);ctx.fillStyle='rgba(243,133,136,.35)';ctx.fill();
+      polyPath(ctx,B.pts.map(function(p){var q=g2w(B_mir(p));return [q.x,q.y];}),0,0);ctx.fillStyle='rgba(63,142,224,.30)';ctx.fill();
+    }
   }
   ctx.save();ctx.lineWidth=7;ctx.strokeStyle=P.ink;ctx.lineJoin='round';ctx.lineCap='round';
-  ctx.beginPath();pts.forEach(function(q,k){if(k)ctx.lineTo(q.x,q.y);else ctx.moveTo(q.x,q.y);});ctx.stroke();
-  var prev=pts[pts.length-1];
+  ctx.beginPath();pts.forEach(function(q,k){if(k)ctx.lineTo(q.x,q.y);else ctx.moveTo(q.x,q.y);});if(!touch)ctx.closePath();ctx.stroke();
   ctx.strokeStyle=P.blue;
-  B.placed.forEach(function(pl){var q=g2w(pl.g);ctx.beginPath();ctx.moveTo(prev.x,prev.y);ctx.lineTo(q.x,q.y);ctx.stroke();prev=q;});
-  if(B.done){ctx.beginPath();ctx.moveTo(prev.x,prev.y);ctx.lineTo(pts[0].x,pts[0].y);ctx.stroke();}
+  if(touch){
+    var prev=pts[pts.length-1];
+    B.placed.forEach(function(pl){var q=g2w(pl.g);ctx.beginPath();ctx.moveTo(prev.x,prev.y);ctx.lineTo(q.x,q.y);ctx.stroke();prev=q;});
+    if(B.done){ctx.beginPath();ctx.moveTo(prev.x,prev.y);ctx.lineTo(pts[0].x,pts[0].y);ctx.stroke();}
+  }else{
+    for(i=1;i<B.placed.length;i++){var a=g2w(B.placed[i-1].g),b=g2w(B.placed[i].g);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+    if(B.done&&B.placed.length>2){var a2=g2w(B.placed[B.placed.length-1].g),b2=g2w(B.placed[0].g);ctx.beginPath();ctx.moveTo(a2.x,a2.y);ctx.lineTo(b2.x,b2.y);ctx.stroke();}
+  }
   ctx.restore();
   pts.forEach(function(q,k){
     ctx.beginPath();ctx.arc(q.x,q.y,10,0,Math.PI*2);ctx.fillStyle=P.ink;ctx.fill();
-    var ox=B.pz.axis==='v'?-26:0,oy=B.pz.axis==='h'?-26:0;
-    if(B.pz.axis==='d'){ox=-22;oy=-22;}
-    label(ctx,LET[k],q.x+ox,q.y+oy,26,P.ink);
+    label(ctx,LET[k],q.x+sd[0]*26,q.y+sd[1]*26,26,P.ink);
   });
   B.placed.forEach(function(pl){
     var q=g2w(pl.g);ctx.beginPath();ctx.arc(q.x,q.y,11,0,Math.PI*2);ctx.fillStyle=P.blue;ctx.fill();
-    label(ctx,LET[pl.i]+'′',q.x+(B.pz.axis==='v'?28:0),q.y+(B.pz.axis==='h'?28:(B.pz.axis==='d'?22:0)),26,P.blue);
+    label(ctx,LET[pl.i]+'′',q.x-sd[0]*28,q.y-sd[1]*28,26,P.blue);
   });
   if(!B.done){
-    var t=B.pts[B.tasks[B.step]],q=g2w(t),pulse=1+.35*Math.sin(now/180);
-    ctx.beginPath();ctx.arc(q.x,q.y,22*pulse,0,Math.PI*2);ctx.lineWidth=6;ctx.strokeStyle=P.orange;ctx.stroke();
+    var t=B.pts[B.tasks[B.step]],q2=g2w(t),pulse=1+.35*Math.sin(now/180);
+    ctx.beginPath();ctx.arc(q2.x,q2.y,22*pulse,0,Math.PI*2);ctx.lineWidth=6;ctx.strokeStyle=P.orange;ctx.stroke();
   }
 }
 function B_buttons(){
   return [
     {t:'정답 보기',f:function(){
       if(B.done)return;
-      while(B.step<B.tasks.length){var ti=B.tasks[B.step];B.placed.push({i:ti,g:B.mir(B.pts[ti])});B.step++;}
+      while(B.step<B.tasks.length){var ti=B.tasks[B.step];B.placed.push({i:ti,g:B_mir(B.pts[ti])});B.step++;}
       B.done=true;B_prompt();setMsg('파란 점이 대응점이에요. 대칭축에서 같은 거리에 있죠?','');
-      var ax=B_axis();startFold(ax.a,ax.d,function(c,st){polyPath(c,B_fullPoly().map(function(q){return [q.x,q.y];}),0,0);fs(c,st);});}},
+      var ai=B_axisInfo();startFold(ai.a,ai.d,B_foldFn());}},
     {t:'다시 하기',f:function(){B.step=0;B.placed=[];B.tries=0;B.done=false;fx.fold=null;B_prompt();}},
-    {t:'다음 문제 ▶',cls:'main',f:B_next}
+    {t:'다음 문제 ▶',cls:'main',f:function(){sessNext('B',B_load);}}
   ];
 }
 
 /* ============================================================
-   모드 3: 대응점 · 대응변 · 대응각 찾기
+   ③ 대응점 · 대응변 · 대응각 찾기 (다양한 대칭축, 30문제)
    ============================================================ */
 var LSH=[
  {name:'집',pts:[[0,-190],[160,-60],[160,150],[-160,150],[-160,-60]]},
@@ -449,73 +540,84 @@ var LSH=[
  {name:'사다리꼴',pts:[[-90,-120],[90,-120],[180,120],[-180,120]]},
  {name:'화살표',pts:[[0,-200],[130,-60],[50,-60],[50,170],[-50,170],[-50,-60],[-130,-60]]},
  {name:'별',pts:starPts(210,90)},
- {name:'나비',pts:[[0,-60],[130,-180],[210,-80],[170,30],[210,130],[110,190],[0,60],[-110,190],[-210,130],[-170,30],[-210,-80],[-130,-180]]}
+ {name:'나비',pts:[[0,-60],[130,-180],[210,-80],[170,30],[210,130],[110,190],[0,60],[-110,190],[-210,130],[-170,30],[-210,-80],[-130,-180]]},
+ {name:'방패',pts:[[-150,-150],[150,-150],[150,40],[0,190],[-150,40]]},
+ {name:'왕관',pts:[[-170,-60],[-85,20],[0,-110],[85,20],[170,-60],[170,150],[-170,150]]}
 ];
-var M={si:-1,rot:0,V:[],map:[],q:null,tries:0,solved:false,pool:[],lastKey:''};
-function M_build(){
-  var sh=LSH[M.si],n=sh.pts.length,i,j;
-  var rot=M.rot?Math.PI/2:0,cs=Math.cos(rot),sn=Math.sin(rot);
-  M.V=sh.pts.map(function(p){return {x:C.x+p[0]*cs-p[1]*sn,y:C.y+p[0]*sn+p[1]*cs};});
-  M.map=sh.pts.map(function(p,a){
-    for(j=0;j<n;j++){if(Math.abs(sh.pts[j][0]+p[0])<1&&Math.abs(sh.pts[j][1]-p[1])<1)return j;}
-    return a;
-  });
-  M.pool=[];
+var MINFO=[];
+function M_info(si){
+  if(MINFO[si])return MINFO[si];
+  var pts=LSH[si].pts,n=pts.length,i,j,map=[],convex=[],area=0;
+  for(i=0;i<n;i++){area+=pts[i][0]*pts[(i+1)%n][1]-pts[(i+1)%n][0]*pts[i][1];}
+  var sg=area>0?1:-1;
   for(i=0;i<n;i++){
-    if(M.map[i]!==i){M.pool.push({type:'point',i:i});M.pool.push({type:'angle',i:i});}
-    var i2=(i+1)%n,a=M.map[i],b=M.map[i2];
-    var f=-1;for(j=0;j<n;j++){var j2=(j+1)%n;if((j===a&&j2===b)||(j===b&&j2===a)){f=j;break;}}
-    if(f>=0&&f!==i)M.pool.push({type:'side',i:i,ans:f});
+    var m=i;for(j=0;j<n;j++){if(Math.abs(pts[j][0]+pts[i][0])<1&&Math.abs(pts[j][1]-pts[i][1])<1){m=j;break;}}
+    map.push(m);
+    var a=pts[(i+n-1)%n],v=pts[i],b=pts[(i+1)%n];
+    convex.push(((v[0]-a[0])*(b[1]-v[1])-(v[1]-a[1])*(b[0]-v[0]))*sg>0);
   }
+  var pool={point:[],angle:[],side:[]};
+  for(i=0;i<n;i++){
+    if(map[i]!==i){pool.point.push({type:'point',i:i});if(convex[i])pool.angle.push({type:'angle',i:i});}
+    var a2=map[i],b2=map[(i+1)%n],f=-1;
+    for(j=0;j<n;j++){var j2=(j+1)%n;if((j===a2&&j2===b2)||(j===b2&&j2===a2)){f=j;break;}}
+    if(f>=0&&f!==i)pool.side.push({type:'side',i:i,ans:f});
+  }
+  MINFO[si]={map:map,convex:convex,pool:pool};return MINFO[si];
 }
-function M_axisInfo(){return {a:C,d:M.rot?{x:1,y:0}:{x:0,y:1}};}
-function M_next(keepShape){
-  if(!keepShape||M.si<0){var ns;do{ns=Math.floor(Math.random()*LSH.length);}while(ns===M.si&&LSH.length>1);M.si=ns;M_build();}
-  var cand,tries=0;
-  do{cand=M.pool[Math.floor(Math.random()*M.pool.length)];tries++;}while(cand&&(cand.type+cand.i+'_'+M.si)===M.lastKey&&tries<20);
-  M.q=cand;M.lastKey=cand.type+cand.i+'_'+M.si;M.tries=0;M.solved=false;fx.fold=null;
-  var n=LSH[M.si].pts.length,lb=function(k){return LET[(k+n)%n];},q=M.q;
-  if(q.type==='point'){setPrompt('점 '+lb(q.i)+'의 대응점을 찾아 눌러 보세요.','대응점: 접었을 때 겹치는 점');}
-  else if(q.type==='angle'){setPrompt('각 '+lb(q.i-1)+lb(q.i)+lb(q.i+1)+'의 대응각을 찾아 눌러 보세요.','대응각: 접었을 때 겹치는 각 (꼭짓점을 눌러요)');}
-  else{setPrompt('변 '+lb(q.i)+lb(q.i+1)+'의 대응변을 찾아 눌러 보세요.','대응변: 접었을 때 겹치는 변');}
-  setMsg('주황색으로 표시된 곳과 겹치는 곳은 어디일까요?','');
+var M={si:0,rot:0,V:[],map:[],q:null,tries:0,solved:false,ax:{a:C,d:{x:0,y:1}}};
+function M_start(){
+  var s=sessNew('C'),order=[],k;
+  for(k=0;k<NQ;k++){if(!order.length||k%LSH.length===0){order=order.concat(shuffle(LSH.map(function(_,i){return i;})));}}
+  var rots=[0,90,45,-45,0,90,135,-135];shuffle(rots);
+  var types=['point','side','angle'];
+  for(k=0;k<NQ;k++){
+    var si=order[k],info=M_info(si),ty=types[k%3];
+    if(!info.pool[ty].length)ty=info.pool.point.length?'point':'side';
+    var q=info.pool[ty][randInt(0,info.pool[ty].length-1)];
+    s.deck.push({si:si,rot:[0,90,45,-45][(k+Math.floor(k/4))%4],q:q});
+  }
+  shuffle(s.deck);M_load();
+}
+function M_load(){
+  var s=SESS.C,it=s.deck[s.i],sh=LSH[it.si],n=sh.pts.length,th=it.rot*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th);
+  M.si=it.si;M.rot=it.rot;M.V=sh.pts.map(function(p){return {x:C.x+p[0]*cs-p[1]*sn,y:C.y+p[0]*sn+p[1]*cs};});
+  M.map=M_info(it.si).map;M.ax={a:C,d:{x:-sn,y:cs}};M.q=it.q;M.tries=0;M.solved=false;fx.fold=null;
+  var lb=function(k){return LET[(k+n)%n];},q=M.q,names={0:'세로',90:'가로',45:'대각선 ／',"-45":'대각선 ＼'};
+  var an=Math.abs(it.rot)===90?'가로':it.rot===0?'세로':(it.rot===45?'대각선 ＼':'대각선 ／');
+  var sub=sessSub('C',an+' 대칭축');
+  if(q.type==='point')setPrompt('점 '+lb(q.i)+'의 대응점을 찾아 눌러 보세요.',sub);
+  else if(q.type==='angle')setPrompt('각 '+lb(q.i-1)+lb(q.i)+lb(q.i+1)+'의 대응각을 찾아 눌러 보세요. (꼭짓점을 눌러요)',sub);
+  else setPrompt('변 '+lb(q.i)+lb(q.i+1)+'의 대응변을 찾아 눌러 보세요.',sub);
+  setMsg('주황색으로 표시된 곳과 겹치는 곳은 어디일까요?','');renderButtons();
 }
 function M_target(p){
   var n=M.V.length,i,best=-1,bd=1e9;
-  if(M.q.type==='side'){
-    for(i=0;i<n;i++){var d=distSeg(p,M.V[i],M.V[(i+1)%n]);if(d<bd){bd=d;best=i;}}
-    return bd<=28?best:-1;
-  }
+  if(M.q.type==='side'){for(i=0;i<n;i++){var d=distSeg(p,M.V[i],M.V[(i+1)%n]);if(d<bd){bd=d;best=i;}}return bd<=28?best:-1;}
   for(i=0;i<n;i++){var dd=Math.hypot(p.x-M.V[i].x,p.y-M.V[i].y);if(dd<bd){bd=dd;best=i;}}
   return bd<=44?best:-1;
 }
+function M_foldFn(){var V=M.V;return function(c,st){c.beginPath();V.forEach(function(q,k){if(k)c.lineTo(q.x,q.y);else c.moveTo(q.x,q.y);});c.closePath();fs(c,st);};}
 function M_down(p){
   if(M.solved)return;
-  var t=M_target(p);
-  if(t<0){missAt(p);return;}
+  var t=M_target(p);if(t<0){missAt(p);return;}
   var ok=M.q.type==='side'?(t===M.q.ans):(t===M.map[M.q.i]);
   if(ok){
-    M.solved=true;confetti(p.x,p.y,50);
-    setMsg('정답! 대칭축으로 접으면 서로 완전히 겹쳐요.','ok');
-    var ai=M_axisInfo(),V=M.V;
-    startFold(ai.a,ai.d,function(c,st){c.beginPath();V.forEach(function(q,k){if(k)c.lineTo(q.x,q.y);else c.moveTo(q.x,q.y);});c.closePath();fs(c,st);});
-  }else{
-    M.tries++;missAt(p);
-    setMsg(M.tries>=2?'힌트: 대칭축을 기준으로 반대쪽, 같은 높이에서 찾아봐요.':'아쉬워요. 접었을 때 겹치는 곳을 다시 생각해 봐요.','bad');
-  }
+    M.solved=true;sessSolve('C');confetti(p.x,p.y,50);setMsg('정답! 대칭축으로 접으면 서로 완전히 겹쳐요.','ok');
+    elSub.textContent=elSub.textContent.replace(/맞힌 문제 \d+개/,'맞힌 문제 '+SESS.C.score+'개');
+    startFold(M.ax.a,M.ax.d,M_foldFn());
+  }else{M.tries++;missAt(p);setMsg(M.tries>=2?'힌트: 대칭축을 기준으로 반대쪽, 같은 거리에서 찾아봐요.':'아쉬워요. 접었을 때 겹치는 곳을 다시 생각해 봐요.','bad');}
 }
 function M_draw(now){
-  var V=M.V,n=V.length,i,q=M.q,ai=M_axisInfo();
+  var V=M.V,n=V.length,q=M.q;
   ctx.save();ctx.beginPath();V.forEach(function(p,k){if(k)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.closePath();
   ctx.fillStyle=P.shape;ctx.fill();ctx.lineWidth=7;ctx.strokeStyle=P.ink;ctx.lineJoin='round';ctx.stroke();ctx.restore();
-  infLine(ctx,ai.a,ai.d,P.accent2,6,true);
-  label(ctx,'대칭축',M.rot?C.x+300:C.x+52,M.rot?C.y-24:30,24,P.accent2);
+  infLine(ctx,M.ax.a,M.ax.d,P.accent2,6,true);
   var pulse=1+.3*Math.sin(now/170);
   function hiSide(k,col){var a=V[k],b=V[(k+1)%n];ctx.save();ctx.lineCap='round';ctx.lineWidth=14;ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.restore();}
   function hiPoint(k,col){ctx.beginPath();ctx.arc(V[k].x,V[k].y,20*pulse,0,Math.PI*2);ctx.lineWidth=7;ctx.strokeStyle=col;ctx.stroke();ctx.beginPath();ctx.arc(V[k].x,V[k].y,9,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();}
   function hiAngle(k,col){
-    var a=V[(k+n-1)%n],v=V[k],b=V[(k+1)%n];
-    var a1=Math.atan2(a.y-v.y,a.x-v.x),a2=Math.atan2(b.y-v.y,b.x-v.x),da=a2-a1;
+    var a=V[(k+n-1)%n],v=V[k],b=V[(k+1)%n],a1=Math.atan2(a.y-v.y,a.x-v.x),a2=Math.atan2(b.y-v.y,b.x-v.x),da=a2-a1;
     while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;
     ctx.save();ctx.beginPath();ctx.moveTo(v.x,v.y);ctx.arc(v.x,v.y,46,a1,a1+da,da<0);ctx.closePath();
     ctx.fillStyle=col==='o'?'rgba(245,154,60,.75)':'rgba(86,171,64,.75)';ctx.fill();ctx.restore();
@@ -525,33 +627,193 @@ function M_draw(now){
     if(q.type==='side'){hiSide(q.i,P.orange);if(M.solved)hiSide(q.ans,P.green);}
     if(q.type==='angle'){hiAngle(q.i,'o');hiPoint(q.i,P.orange);if(M.solved){hiAngle(M.map[q.i],'g');hiPoint(M.map[q.i],P.green);}}
   }
-  var cc=C;
   V.forEach(function(p,k){
     ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fillStyle=P.ink;ctx.fill();
-    var u=unit(cc,p);
-    if(Math.hypot(p.x-cc.x,p.y-cc.y)<1)u={x:0,y:-1};
+    var u=unit(C,p);if(Math.hypot(p.x-C.x,p.y-C.y)<1)u={x:0,y:-1};
     label(ctx,LET[k],p.x+u.x*34,p.y+u.y*34,28,P.ink);
   });
 }
 function M_buttons(){
   return [
-    {t:'접어 보기',f:function(){var ai=M_axisInfo(),V=M.V;startFold(ai.a,ai.d,function(c,st){c.beginPath();V.forEach(function(p,k){if(k)c.lineTo(p.x,p.y);else c.moveTo(p.x,p.y);});c.closePath();fs(c,st);});}},
-    {t:'방향 바꾸기',f:function(){M.rot=M.rot?0:1;M_build();M.solved=false;fx.fold=null;M_next(true);}},
-    {t:'정답 보기',f:function(){
-      var q=M.q;M.solved=true;
-      setMsg(q.type==='side'?'초록색 변이 대응변이에요.':q.type==='angle'?'초록색 각이 대응각이에요.':'초록색 점이 대응점이에요.','');}},
-    {t:'다른 도형 ▶',f:function(){M_next(false);}},
-    {t:'다음 문제 ▶',cls:'main',f:function(){M_next(true);}}
+    {t:'접어 보기',f:function(){startFold(M.ax.a,M.ax.d,M_foldFn());}},
+    {t:'정답 보기',f:function(){var q=M.q;M.solved=true;setMsg(q.type==='side'?'초록색 변이 대응변이에요.':q.type==='angle'?'초록색 각이 대응각이에요.':'초록색 점이 대응점이에요.','');}},
+    {t:'다음 문제 ▶',cls:'main',f:function(){sessNext('C',M_load);}}
   ];
+}
+
+/* ============================================================
+   ④ 대응각의 크기 · 대응변의 길이 (30문제)
+   ============================================================ */
+var NSH=[
+ {name:'집',pts:[[0,-6],[4,-2],[4,5],[-4,5],[-4,-2]]},
+ {name:'화살표',pts:[[0,-7],[4,-3],[2,-3],[2,5],[-2,5],[-2,-3],[-4,-3]]},
+ {name:'사다리꼴',pts:[[-3,-3],[3,-3],[6,0],[-6,0]]},
+ {name:'방패',pts:[[-4,-4],[4,-4],[4,1],[0,5],[-4,1]]},
+ {name:'왕관',pts:[[-6,-4],[-3,-1],[0,-4],[3,-1],[6,-4],[6,4],[-6,4]]},
+ {name:'T자',pts:[[-1,-6],[1,-6],[1,0],[5,0],[5,2],[-5,2],[-5,0],[-1,0]]},
+ {name:'계단',pts:[[-2,-6],[2,-6],[2,-3],[4,-3],[4,0],[6,0],[6,3],[-6,3],[-6,0],[-4,0],[-4,-3],[-2,-3]]},
+ {name:'오각형집',pts:[[0,-5],[5,0],[5,5],[-5,5],[-5,0]]},
+ {name:'로켓',pts:[[0,-8],[3,-5],[3,3],[5,5],[5,7],[-5,7],[-5,5],[-3,3],[-3,-5]]}
+];
+var NINFO=[];
+function N_info(si){
+  if(NINFO[si])return NINFO[si];
+  var pts=NSH[si].pts,n=pts.length,i,j,map=[],ang=[],convex=[],area=0;
+  for(i=0;i<n;i++)area+=pts[i][0]*pts[(i+1)%n][1]-pts[(i+1)%n][0]*pts[i][1];
+  var sg=area>0?1:-1;
+  for(i=0;i<n;i++){
+    var m=i;for(j=0;j<n;j++){if(pts[j][0]===-pts[i][0]&&pts[j][1]===pts[i][1]){m=j;break;}}
+    map.push(m);
+    var a=pts[(i+n-1)%n],v=pts[i],b=pts[(i+1)%n],ux=a[0]-v[0],uy=a[1]-v[1],wx=b[0]-v[0],wy=b[1]-v[1];
+    var d=Math.acos((ux*wx+uy*wy)/(Math.hypot(ux,uy)*Math.hypot(wx,wy)))*180/Math.PI;
+    var cv=((v[0]-a[0])*(b[1]-v[1])-(v[1]-a[1])*(b[0]-v[0]))*sg>0;
+    convex.push(cv);ang.push(Math.round(cv?d:360-d));
+  }
+  var angQ=[],sideQ=[],len=[];
+  for(i=0;i<n;i++){
+    var a2=pts[i],b2=pts[(i+1)%n],dx=b2[0]-a2[0],dy=b2[1]-a2[1];len.push(Math.hypot(dx,dy));
+    if(map[i]!==i&&convex[i])angQ.push(i);
+    var fa=map[i],fb=map[(i+1)%n],f=-1;
+    for(j=0;j<n;j++){var j2=(j+1)%n;if((j===fa&&j2===fb)||(j===fb&&j2===fa)){f=j;break;}}
+    if(f>=0&&f!==i&&(dx===0||dy===0))sideQ.push({e:i,f:f});
+  }
+  NINFO[si]={map:map,ang:ang,convex:convex,len:len,angQ:angQ,sideQ:sideQ};return NINFO[si];
+}
+var N={si:0,rot:0,V:[],q:null,done:false,wrong:[],opts:[]};
+var NU=30;
+function N_start(){
+  var s=sessNew('N'),k,order=[];
+  for(k=0;k<NQ;k++){if(k%NSH.length===0)order=order.concat(shuffle(NSH.map(function(_,i){return i;})));}
+  for(k=0;k<NQ;k++){
+    var si=order[k],info=N_info(si),ty=k%2?'side':'angle';
+    if(ty==='angle'&&!info.angQ.length)ty='side';if(ty==='side'&&!info.sideQ.length)ty='angle';
+    var q;
+    if(ty==='angle'){var iv=info.angQ[randInt(0,info.angQ.length-1)];q={type:'angle',i:iv,ans:info.map[iv]};}
+    else{var sq=info.sideQ[randInt(0,info.sideQ.length-1)];q={type:'side',i:sq.e,ans:sq.f};}
+    s.deck.push({si:si,rot:[0,90,45,-45][(k+Math.floor(k/4))%4],q:q});
+  }
+  shuffle(s.deck);N_load();
+}
+function N_load(){
+  var s=SESS.N,it=s.deck[s.i],sh=NSH[it.si],info=N_info(it.si),n=sh.pts.length,i;
+  var xs=sh.pts.map(function(p){return p[0];}),ys=sh.pts.map(function(p){return p[1];});
+  var bx=(Math.min.apply(0,xs)+Math.max.apply(0,xs))/2,by=(Math.min.apply(0,ys)+Math.max.apply(0,ys))/2;
+  var th=it.rot*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th);
+  N.si=it.si;N.rot=it.rot;N.q=it.q;N.done=false;N.wrong=[];fx.fold=null;
+  N.V=sh.pts.map(function(p){var x=(p[0]-bx)*NU,y=(p[1]-by)*NU;return {x:C.x+x*cs-y*sn,y:C.y+x*sn+y*cs};});
+  N.ax={a:C,d:{x:-sn,y:cs}};
+  var q=N.q,lb=function(k){return LET[(k+n)%n];},val,ans;
+  if(q.type==='angle'){
+    val=info.ang[q.i];ans=info.ang[q.ans];
+    var pool=[45,90,135,180,225,270];info.ang.forEach(function(v){if(pool.indexOf(v)<0)pool.push(v);});
+    var o=pickN(pool,3,[ans]);o.push(ans);N.opts=o.sort(function(a,b){return a-b;});N.unit='°';
+    N.given=val;N.answer=ans;
+    setPrompt('각 '+lb(q.i-1)+lb(q.i)+lb(q.i+1)+'의 크기가 '+val+'°일 때, 대응각 각 '+lb(q.ans-1)+lb(q.ans)+lb(q.ans+1)+'의 크기는?',sessSub('N','대응각의 크기'));
+  }else{
+    var pts=sh.pts,dx=pts[(q.i+1)%n][0]-pts[q.i][0],dy=pts[(q.i+1)%n][1]-pts[q.i][1];val=Math.abs(dx||dy);ans=val;
+    var cand=[val-3,val-2,val-1,val+1,val+2,val+3,Math.round(val*1.5),Math.max(1,Math.round(val/2))].filter(function(v){return v>=1&&v!==val;});
+    var u2=[];cand.forEach(function(v){if(u2.indexOf(v)<0)u2.push(v);});
+    var o2=pickN(u2,3,[]);o2.push(ans);N.opts=o2.sort(function(a,b){return a-b;});N.unit='cm';
+    N.given=val;N.answer=ans;
+    setPrompt('변 '+lb(q.i)+lb(q.i+1)+'의 길이가 '+val+'cm일 때, 대응변 변 '+lb(q.ans)+lb(q.ans+1)+'의 길이는?',sessSub('N','대응변의 길이'));
+  }
+  setMsg('도형을 잘 보고, 알맞은 값을 골라요. (대응하는 것끼리는 크기가 같아요)','');renderButtons();
+}
+function N_foldFn(){var V=N.V;return function(c,st){c.beginPath();V.forEach(function(q,k){if(k)c.lineTo(q.x,q.y);else c.moveTo(q.x,q.y);});c.closePath();fs(c,st);};}
+function N_answer(v){
+  if(N.done)return;
+  if(v===N.answer){
+    N.done=true;sessSolve('N');confetti(C.x,C.y,80);
+    setMsg('정답! 대응하는 '+(N.q.type==='angle'?'각':'변')+'끼리는 '+(N.q.type==='angle'?'크기':'길이')+'가 같아요.','ok');
+    elSub.textContent=elSub.textContent.replace(/맞힌 문제 \d+개/,'맞힌 문제 '+SESS.N.score+'개');
+    startFold(N.ax.a,N.ax.d,N_foldFn());
+  }else{N.wrong.push(v);setMsg('아쉬워요. 접었을 때 겹치는 것은 크기(길이)가 같아요. 다시 골라 봐요.','bad');}
+  renderButtons();
+}
+function N_draw(now){
+  var V=N.V,n=V.length,q=N.q;
+  ctx.save();ctx.beginPath();V.forEach(function(p,k){if(k)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.closePath();
+  ctx.fillStyle=P.shape;ctx.fill();ctx.lineWidth=7;ctx.strokeStyle=P.ink;ctx.lineJoin='round';ctx.stroke();ctx.restore();
+  infLine(ctx,N.ax.a,N.ax.d,P.accent2,5,true);
+  function wedge(k,col,txt){
+    var a=V[(k+n-1)%n],v=V[k],b=V[(k+1)%n],a1=Math.atan2(a.y-v.y,a.x-v.x),a2=Math.atan2(b.y-v.y,b.x-v.x),da=a2-a1;
+    while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;
+    ctx.save();ctx.beginPath();ctx.moveTo(v.x,v.y);ctx.arc(v.x,v.y,44,a1,a1+da,da<0);ctx.closePath();ctx.fillStyle=col;ctx.fill();ctx.restore();
+    var mid=a1+da/2;label(ctx,txt,v.x+Math.cos(mid)*78,v.y+Math.sin(mid)*78,28,P.ink);
+  }
+  function side(k,col,txt){
+    var a=V[k],b=V[(k+1)%n];ctx.save();ctx.lineCap='round';ctx.lineWidth=14;ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.restore();
+    var mx=(a.x+b.x)/2,my=(a.y+b.y)/2,u=unit(C,{x:mx,y:my});label(ctx,txt,mx+u.x*34,my+u.y*34,28,P.ink);
+  }
+  if(q.type==='angle'){wedge(q.i,'rgba(245,154,60,.8)',N.given+'°');if(N.done)wedge(q.ans,'rgba(86,171,64,.8)',N.answer+'°');}
+  else{side(q.i,P.orange,N.given+'cm');if(N.done)side(q.ans,P.green,N.answer+'cm');}
+  V.forEach(function(p,k){
+    ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fillStyle=P.ink;ctx.fill();
+    var u=unit(C,p);if(Math.hypot(p.x-C.x,p.y-C.y)<1)u={x:0,y:-1};
+    label(ctx,LET[k],p.x+u.x*(q.type==='angle'?30:30),p.y+u.y*30,26,P.ink);
+  });
+}
+function N_buttons(){
+  var arr=[];
+  if(!N.done){N.opts.forEach(function(v){arr.push({t:v+N.unit,dis:N.wrong.indexOf(v)>=0,f:function(){N_answer(v);}});});}
+  arr.push({t:'접어 보기',f:function(){startFold(N.ax.a,N.ax.d,N_foldFn());}});
+  arr.push({t:'다음 문제 ▶',cls:'main',f:function(){sessNext('N',N_load);}});
+  return arr;
+}
+
+/* ============================================================
+   ⑤ 선대칭도형 맞히기 (O/X · 대칭축 개수, 30문제)
+   ============================================================ */
+var O={shape:null,rot:0,axes:[],kind:'ox',opts:[],done:false,wrong:[]};
+function O_start(){
+  var s=sessNew('O'),d=[];
+  SHAPES.forEach(function(sh,si){
+    d.push({si:si,rot:[0,90,45,135,30,60,120,150][randInt(0,7)],kind:'ox'});
+    d.push({si:si,rot:[0,90,45,135,30,60,120,150][randInt(0,7)],kind:'count'});
+  });
+  s.deck=shuffle(d);O_load();
+}
+function O_load(){
+  var s=SESS.O,it=s.deck[s.i],sh=SHAPES[it.si];
+  O.shape=sh;O.rot=it.rot;O.axes=sh.axes.map(function(a){return ((a+it.rot)%180+180)%180;});O.kind=it.kind;O.done=false;O.wrong=[];fx.fold=null;
+  if(O.kind==='ox'){O.opts=['O','X'];setPrompt('이 도형은 선대칭도형일까요?',sessSub('O','O 또는 X'));}
+  else{
+    var n=O.axes.length,o=pickN([0,1,2,3,4,5],3,[n]);o.push(n);O.opts=o.sort(function(a,b){return a-b;});
+    setPrompt('이 도형의 대칭축은 모두 몇 개일까요?',sessSub('O','대칭축의 개수'));
+  }
+  setMsg('도형을 잘 살펴보고, 접었을 때 완전히 겹치는 선이 있는지 생각해 봐요.','');renderButtons();
+}
+function O_answer(v){
+  if(O.done)return;
+  var n=O.axes.length,ok=O.kind==='ox'?((v==='O')===(n>0)):(v===n);
+  if(ok){
+    O.done=true;sessSolve('O');confetti(C.x,C.y,80);
+    setMsg(O.kind==='ox'?(n>0?'정답! 접으면 완전히 겹치는 선(대칭축)이 있어요.':'정답! 어떻게 접어도 완전히 겹치지 않아요.'):'정답! 대칭축은 '+n+'개예요.','ok');
+    elSub.textContent=elSub.textContent.replace(/맞힌 문제 \d+개/,'맞힌 문제 '+SESS.O.score+'개');
+    if(n>0){var sh=O.shape,rot=O.rot;startFold(C,axisDir(O.axes[0]),function(c,st){rotDraw(c,sh,rot,st);});}
+  }else{O.wrong.push(v);setMsg('아쉬워요. 다시 한번 생각해 봐요.','bad');}
+  renderButtons();
+}
+function O_draw(){
+  rotDraw(ctx,O.shape,O.rot,styMain());
+  if(O.done)O.axes.forEach(function(a){infLine(ctx,C,axisDir(a),P.green,6,true);});
+}
+function O_buttons(){
+  var arr=[];
+  if(!O.done){O.opts.forEach(function(v){arr.push({t:O.kind==='ox'?v:(v+'개'),dis:O.wrong.indexOf(v)>=0,f:function(){O_answer(v);}});});}
+  arr.push({t:'다음 문제 ▶',cls:'main',f:function(){sessNext('O',O_load);}});
+  return arr;
 }
 
 /* ============================================================
    공통 UI / 모드 전환
    ============================================================ */
 var MODES=[
-  {id:'A',name:'① 대칭축 긋기',init:A_next,draw:A_draw,btns:A_buttons},
-  {id:'B',name:'② 대칭 도형 완성하기',init:B_next,draw:B_draw,btns:B_buttons},
-  {id:'C',name:'③ 대응점·변·각 찾기',init:function(){M_next(false);},draw:M_draw,btns:M_buttons}
+  {id:'A',name:'① 대칭축 긋기',init:A_start,draw:A_draw,btns:A_buttons},
+  {id:'B',name:'② 대칭 도형 그리기',init:B_start,draw:B_draw,btns:B_buttons},
+  {id:'C',name:'③ 대응점·변·각 찾기',init:M_start,draw:M_draw,btns:M_buttons},
+  {id:'N',name:'④ 각의 크기·변의 길이',init:N_start,draw:N_draw,btns:N_buttons},
+  {id:'O',name:'⑤ 선대칭도형 맞히기',init:O_start,draw:O_draw,btns:O_buttons}
 ];
 var mode=0;
 var elPrompt=document.getElementById('prompt'),elSub=document.getElementById('sub'),elMsg=document.getElementById('msg'),elBtns=document.getElementById('btns');
@@ -559,8 +821,10 @@ function setPrompt(a,b){elPrompt.textContent=a;elSub.textContent=b||'';}
 function setMsg(t,cls){elMsg.textContent=t;elMsg.className=cls||'';}
 function renderButtons(){
   elBtns.textContent='';
-  MODES[mode].btns().forEach(function(b){
-    var e=document.createElement('button');e.type='button';e.className='b'+(b.cls?' '+b.cls:'');e.textContent=b.t;
+  var list=fin?[{t:'다시 하기',cls:'main',f:function(){fin=null;fx.conf=[];MODES[mode].init();renderButtons();}},{t:'다음 유형 ▶',f:function(){setMode((mode+1)%MODES.length);}}]:MODES[mode].btns();
+  list.forEach(function(b){
+    var e=document.createElement('button');e.type='button';e.className='b'+(b.cls?' '+b.cls:'')+(b.dis?' dis':'');e.textContent=b.t;
+    if(b.dis)e.disabled=true;
     e.addEventListener('click',function(){b.f();});elBtns.appendChild(e);
   });
 }
@@ -572,8 +836,7 @@ function renderTabs(){
   });
 }
 function setMode(i){
-  mode=i;fx.fold=null;fx.conf=[];fx.miss=[];
-  A.drawing=false;
+  mode=i;fin=null;fx.fold=null;fx.conf=[];fx.miss=[];A.drawing=false;
   MODES[i].init();renderTabs();renderButtons();
 }
 
@@ -581,6 +844,7 @@ function setMode(i){
 var down=false;
 cv.addEventListener('pointerdown',function(e){
   e.preventDefault();try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  if(fin)return;
   down=true;var p=toWorld(e);
   if(mode===0){fx.fold=null;A.drawing=true;A.line={a:p,b:p};}
   else if(mode===1)B_down(p);
@@ -772,6 +1036,12 @@ function applyOp(op){
     actx.save();actx.globalAlpha=op.alpha/100;actx.drawImage(tmp,0,0);actx.restore();
   }
   else if(op.kind==='erase'){actx.save();actx.globalCompositeOperation='destination-out';eraseOp(actx,op);actx.restore();}
+  else if(op.kind==='lasso'){
+    tctx.clearRect(0,0,RW,RH);tctx.save();polyClip(tctx,op.poly);tctx.drawImage(art,0,0);tctx.restore();
+    actx.save();polyClip(actx,op.poly);actx.clearRect(0,0,RW,RH);actx.restore();
+    actx.save();selXf(actx,op);actx.drawImage(tmp,0,0);actx.restore();
+  }
+  else if(op.kind==='lassoDel'){actx.save();polyClip(actx,op.poly);actx.clearRect(0,0,RW,RH);actx.restore();}
   else if(op.kind==='fill'){floodFill(op);}
 }
 function rebuild(){
@@ -780,8 +1050,8 @@ function rebuild(){
   for(i=start;i<S.ops.length;i++)applyOp(S.ops[i]);
 }
 function pushOp(op){S.ops.push(op);S.redo=[];refreshTop();}
-function undo(){if(!S.ops.length)return;S.redo.push(S.ops.pop());rebuild();refreshTop();}
-function redo(){if(!S.redo.length)return;var op=S.redo.pop();S.ops.push(op);applyOp(op);refreshTop();}
+function undo(){if(S.sel){cancelSel();return;}if(!S.ops.length)return;S.redo.push(S.ops.pop());rebuild();refreshTop();}
+function redo(){if(S.sel||!S.redo.length)return;var op=S.redo.pop();S.ops.push(op);applyOp(op);refreshTop();}
 function pickColor(p){
   var x=Math.max(0,Math.min(RW-1,Math.round(p.x*K))),y=Math.max(0,Math.min(RH-1,Math.round(p.y*K)));
   var d=actx.getImageData(x,y,1,1).data,bg=hexToRgb(S.bg),a=d[3]/255;
@@ -823,9 +1093,21 @@ function sFrame(){
   sctx.save();sctx.beginPath();sctx.rect(0,0,W,H);sctx.clip();
   if(S.grid)drawGrid(sctx);
   sctx.drawImage(art,0,0,W,H);
+  if(S.sel){
+    var sl=S.sel;sctx.save();sctx.translate(sl.ax+sl.tx,sl.ay+sl.ty);sctx.scale(sl.sc,sl.sc);sctx.translate(-sl.ax,-sl.ay);sctx.drawImage(sl.fl,0,0,W,H);sctx.restore();
+    var cs=selCorners(sl);
+    sctx.save();sctx.setLineDash([12,8]);sctx.lineWidth=3;sctx.strokeStyle=P.blue;sctx.beginPath();
+    cs.forEach(function(q,i){if(i)sctx.lineTo(q.x,q.y);else sctx.moveTo(q.x,q.y);});sctx.closePath();sctx.stroke();sctx.setLineDash([]);
+    cs.forEach(function(q){sctx.fillStyle='#fff';sctx.strokeStyle=P.blue;sctx.lineWidth=4;sctx.beginPath();sctx.rect(q.x-11,q.y-11,22,22);sctx.fill();sctx.stroke();});
+    sctx.restore();
+  }
+  if(S.lasso&&S.lasso.length>1){
+    sctx.save();sctx.setLineDash([10,7]);sctx.lineWidth=3;sctx.strokeStyle=P.blue;sctx.beginPath();
+    S.lasso.forEach(function(q,i){if(i)sctx.lineTo(q.x,q.y);else sctx.moveTo(q.x,q.y);});sctx.stroke();sctx.restore();
+  }
   if(S.cur&&S.cur.kind!=='erase'){renderCur();sctx.globalAlpha=S.cur.alpha/100;sctx.drawImage(tmp,0,0,W,H);sctx.globalAlpha=1;}
   if(S.axes)drawAxes(sctx,S.sym);
-  if(S.hover&&S.ptr&&S.sym!=='none'&&['pick','fill'].indexOf(S.tool)<0){
+  if(S.hover&&S.ptr&&S.sym!=='none'&&['pick','fill','lasso'].indexOf(S.tool)<0){
     var rr=Math.max(8,S.w*.6+4);
     TF[S.sym].forEach(function(m,i){
       var q=mapP(m,S.ptr);
@@ -838,6 +1120,49 @@ function sFrame(){
 }
 
 /* ---- 입력 ---- */
+function polyClip(c,poly){c.beginPath();poly.forEach(function(p,i){var x=p.x*K,y=p.y*K;if(i)c.lineTo(x,y);else c.moveTo(x,y);});c.closePath();c.clip();}
+function selXf(c,s){c.translate(K*(s.ax+s.tx),K*(s.ay+s.ty));c.scale(s.sc,s.sc);c.translate(-K*s.ax,-K*s.ay);}
+function selMap(s,p){return {x:s.ax+(p.x-s.ax)*s.sc+s.tx,y:s.ay+(p.y-s.ay)*s.sc+s.ty};}
+function selCorners(s){var b=s.box;return [{x:b.x0,y:b.y0},{x:b.x1,y:b.y0},{x:b.x1,y:b.y1},{x:b.x0,y:b.y1}].map(function(p){return selMap(s,p);});}
+function selContains(s,p){var q={x:s.ax+(p.x-s.ax-s.tx)/s.sc,y:s.ay+(p.y-s.ay-s.ty)/s.sc},b=s.box;return q.x>=b.x0&&q.x<=b.x1&&q.y>=b.y0&&q.y<=b.y1;}
+function createSel(poly){
+  var x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  poly.forEach(function(p){x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);});
+  if((x1-x0)<14||(y1-y0)<14)return;
+  var s={poly:poly,box:{x0:x0,y0:y0,x1:x1,y1:y1},ax:(x0+x1)/2,ay:(y0+y1)/2,tx:0,ty:0,sc:1,fl:mk(RW,RH),bk:mk(RW,RH)};
+  s.bk.getContext('2d').drawImage(art,0,0);
+  var fc=s.fl.getContext('2d');fc.save();polyClip(fc,poly);fc.drawImage(art,0,0);fc.restore();
+  actx.save();polyClip(actx,poly);actx.clearRect(0,0,RW,RH);actx.restore();
+  S.sel=s;buildOpts();
+}
+function commitSel(){
+  var s=S.sel;if(!s)return;S.sel=null;
+  if(s.tx===0&&s.ty===0&&s.sc===1){actx.clearRect(0,0,RW,RH);actx.drawImage(s.bk,0,0);buildOpts();return;}
+  actx.save();selXf(actx,s);actx.drawImage(s.fl,0,0);actx.restore();
+  pushOp({kind:'lasso',poly:s.poly,ax:s.ax,ay:s.ay,tx:s.tx,ty:s.ty,sc:s.sc});buildOpts();
+}
+function cancelSel(){var s=S.sel;if(!s)return;S.sel=null;actx.clearRect(0,0,RW,RH);actx.drawImage(s.bk,0,0);buildOpts();}
+function deleteSel(){var s=S.sel;if(!s)return;S.sel=null;pushOp({kind:'lassoDel',poly:s.poly});buildOpts();}
+function scaleSel(f){var s=S.sel;if(!s)return;s.sc=Math.max(.1,Math.min(8,s.sc*f));}
+function lassoDown(p){
+  var s=S.sel,i;
+  if(s){
+    var cs=selCorners(s);
+    for(i=0;i<4;i++){
+      if(Math.hypot(p.x-cs[i].x,p.y-cs[i].y)<32){var c0=selMap(s,{x:s.ax,y:s.ay});S.selDrag={mode:'scale',sc0:s.sc,d0:Math.max(10,Math.hypot(cs[i].x-c0.x,cs[i].y-c0.y))};return;}
+    }
+    if(selContains(s,p)){S.selDrag={mode:'move',px:p.x,py:p.y,tx0:s.tx,ty0:s.ty};return;}
+    commitSel();
+  }
+  S.lasso=[{x:p.x,y:p.y}];
+}
+function lassoMove(p){
+  var s=S.sel,d=S.selDrag;
+  if(d&&s){
+    if(d.mode==='move'){s.tx=d.tx0+p.x-d.px;s.ty=d.ty0+p.y-d.py;}
+    else{var c0=selMap(s,{x:s.ax,y:s.ay}),dist=Math.hypot(p.x-c0.x,p.y-c0.y);s.sc=Math.max(.1,Math.min(8,d.sc0*dist/d.d0));}
+  }else if(S.lasso){var l=S.lasso[S.lasso.length-1];if(Math.hypot(p.x-l.x,p.y-l.y)>3)S.lasso.push({x:p.x,y:p.y});}
+}
 var sDown=false,lastT=0;
 var SHAPEK=['line','rect','ellipse','tri','diamond','star','heart','hexa'];
 function effAlpha(){return S.tool==='marker'?Math.min(S.alpha,45):S.alpha;}
@@ -847,6 +1172,8 @@ sc.addEventListener('pointerdown',function(e){
   if(p.x<-20||p.x>W+20||p.y<-20||p.y>H+20)return;
   sDown=true;lastT=performance.now();
   var t=S.tool;
+  if(t==='lasso'){lassoDown(p);return;}
+  if(S.sel)commitSel();
   if(t==='fill'){var op={kind:'fill',p:p,color:S.color,alpha:S.alpha,sym:S.sym};applyOp(op);pushOp(op);sDown=false;return;}
   if(t==='pick'){S.color=pickColor(p);buildOpts();sDown=false;return;}
   if(t==='stamp'){var so={kind:'stamp',p:p,ch:S.glyph,size:S.w*6+30,color:S.color,alpha:S.alpha,sym:S.sym};applyOp(so);pushOp(so);sDown=false;return;}
@@ -857,6 +1184,7 @@ sc.addEventListener('pointerdown',function(e){
 });
 sc.addEventListener('pointermove',function(e){
   var p=sToW(e);S.ptr=p;
+  if(sDown&&S.tool==='lasso'){e.preventDefault();lassoMove(p);return;}
   if(!sDown||!S.cur)return;
   e.preventDefault();
   var c=S.cur;
@@ -883,6 +1211,11 @@ sc.addEventListener('pointermove',function(e){
 });
 function sEnd(){
   if(!sDown)return;sDown=false;
+  if(S.tool==='lasso'||S.lasso||S.selDrag){
+    if(S.selDrag){S.selDrag=null;}
+    else if(S.lasso){var poly=S.lasso;S.lasso=null;if(poly.length>=8)createSel(poly);}
+    return;
+  }
   var c=S.cur;S.cur=null;if(!c)return;
   if(c.kind==='shape'){
     if(Math.hypot(c.p1.x-c.p0.x,c.p1.y-c.p0.y)<4)return;
@@ -916,6 +1249,7 @@ function saveBlob(blob){
   }else anchorSave(blob,name);
 }
 function exportPNG(){
+  commitSel();
   var ex=mk(RW,RH),e=ex.getContext('2d');
   e.fillStyle=S.bg;e.fillRect(0,0,RW,RH);
   if(S.grid){e.save();e.scale(K,K);drawGrid(e);e.restore();}
@@ -931,7 +1265,9 @@ var TOOLS=[
   ['도형'],
   ['line','직선','╱'],['rect','사각형','▭'],['ellipse','원','◯'],['tri','삼각형','△'],['diamond','마름모','◇'],['star','별','☆'],['heart','하트','♡'],['hexa','육각형','⬡'],
   ['꾸미기'],
-  ['fill','색칠하기','▨'],['pick','스포이드','⌖'],['stamp','낱자 도장','ㅎ']
+  ['fill','색칠하기','▨'],['pick','스포이드','⌖'],['stamp','낱자 도장','ㅎ'],
+  ['선택'],
+  ['lasso','올가미 선택','◌']
 ];
 var SYMS=[['none','대칭 없음'],['v','세로 대칭축'],['h','가로 대칭축'],['vh','세로+가로 (2개)'],['d1','대각선 ＼'],['d2','대각선 ／'],['d4','대칭축 4개']];
 var SWATCH=['#E24B55','#F38588','#F59A3C','#F5C542','#56AB40','#9AD27A','#2FB8B0','#3F8EE0','#6C5CE7','#B06AD8','#8B5A2B','#4D3831','#000000','#808080','#FFFFFF'];
@@ -943,11 +1279,19 @@ function buildTools(){
     if(t.length===1){el('h4',null,t[0],box);return;}
     var b=el('button','tl'+(S.tool===t[0]?' on':''),null,box);b.type='button';
     el('i',null,t[2],b);el('span',null,t[1],b);
-    b.addEventListener('click',function(){S.tool=t[0];buildTools();buildOpts();});
+    b.addEventListener('click',function(){if(S.sel&&t[0]!=='lasso')commitSel();S.tool=t[0];buildTools();buildOpts();});
   });
 }
 function buildOpts(){
   var box=document.getElementById('opts');box.textContent='';
+  if(S.tool==='lasso'||S.sel){
+    el('h4',null,'올가미 선택 · 옮기기 · 크기',box);
+    el('div','hint','올가미로 그림을 빙 둘러 감싸요. 안쪽을 끌면 옮겨지고, 파란 네모의 모서리를 끌면 크기가 바뀌어요.',box);
+    var lg=el('div','grid2',null,box);
+    [['크게 ▲ ×1.25',function(){scaleSel(1.25);}],['작게 ▼ ×0.8',function(){scaleSel(0.8);}],['붙이기(확정)',commitSel],['선택 지우기',deleteSel],['취소',cancelSel]].forEach(function(o){
+      var b=el('button','ob',o[0],lg);b.type='button';b.disabled=!S.sel;b.addEventListener('click',o[1]);
+    });
+  }
   el('h4',null,'대칭 모드 (대칭축 고르기)',box);
   var g=el('div','grid2',null,box);
   SYMS.forEach(function(sy){
@@ -1000,7 +1344,7 @@ function openStudio(){
   studio.classList.add('open');S.open=true;sResize();
   buildTools();buildOpts();refreshTop();requestAnimationFrame(sFrame);
 }
-function closeStudio(){studio.classList.remove('open');S.open=false;}
+function closeStudio(){commitSel();studio.classList.remove('open');S.open=false;}
 document.getElementById('openStudio').addEventListener('click',openStudio);
 document.getElementById('s-close').addEventListener('click',closeStudio);
 document.getElementById('s-undo').addEventListener('click',undo);
@@ -1009,7 +1353,7 @@ document.getElementById('s-save').addEventListener('click',exportPNG);
 var clearBtn=document.getElementById('s-clear'),clearTimer=0;
 clearBtn.addEventListener('click',function(){
   if(!S.clearArm){S.clearArm=1;clearBtn.textContent='정말 지울까요?';clearTimer=setTimeout(function(){S.clearArm=0;clearBtn.textContent='모두 지우기';},3000);return;}
-  clearTimeout(clearTimer);S.clearArm=0;clearBtn.textContent='모두 지우기';
+  clearTimeout(clearTimer);S.clearArm=0;clearBtn.textContent='모두 지우기';commitSel();
   var op={kind:'clear'};applyOp(op);pushOp(op);
 });
 window.addEventListener('keydown',function(e){
@@ -1030,7 +1374,7 @@ function frame(now){
   ctx.shadowColor='rgba(0,0,0,.18)';ctx.shadowBlur=18;ctx.shadowOffsetY=4;
   ctx.fillStyle=P.paper;ctx.beginPath();ctx.rect(0,0,W,H);ctx.fill();ctx.restore();
   ctx.save();ctx.beginPath();ctx.rect(0,0,W,H);ctx.clip();
-  MODES[mode].draw(now);
+  if(fin)drawFinish();else MODES[mode].draw(now);
   if(fx.fold){
     var f=fx.fold,t=Math.min(1,(now-f.start)/f.dur),k=Math.cos(Math.PI*ease(t));
     var m=foldMatrix(f.a,f.d,k);

@@ -102,6 +102,46 @@ h1 small{font-size:16px;color:var(--muted);margin-left:8px}
 .tab{padding:9px 14px;font-size:18px}
 .b.dis{opacity:.4}
 .hint{font-size:15px;line-height:1.45;color:var(--muted);margin:2px 2px 4px}
+
+/* ---- 태블릿·작은 화면 보정: 화면이 넘치면 스크롤되고, 머리글이 한 줄/두 줄로 정돈되도록 ---- */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{height:auto;min-height:100%}
+body{overflow-x:hidden;overflow-y:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#app{height:auto;min-height:100vh;min-height:100dvh}
+header h1{flex:0 1 auto}
+@media (max-width:1250px){
+  header{gap:8px;padding:8px 12px}
+  header h1{font-size:22px;flex:1 1 auto}
+  h1 small{display:none}
+  #tabs{flex:1 1 100%;order:5;gap:6px}
+  .tab{font-size:16px;padding:6px 10px;min-height:44px;flex:1 1 auto;border-radius:14px}
+  #openStudio{font-size:18px;min-height:46px;padding:8px 14px;border-radius:16px}
+  #full{min-height:46px;font-size:16px;padding:6px 10px}
+  #main{padding:0 12px 12px;gap:10px}
+  #side{width:250px}
+  #prompt{font-size:21px} #sub{font-size:15px} #msg{font-size:18px;min-height:44px}
+  .b{font-size:17px;min-height:48px}
+  .card{padding:10px 12px}
+  #stop{padding:6px 10px;gap:6px} #stop .ttl{font-size:20px;margin-right:4px}
+  .sb{font-size:16px;min-height:42px;padding:4px 10px}
+  #tools{width:176px} .tl{min-height:50px;font-size:14px;padding:2px 0}
+  #opts{width:236px}
+  .rng span:first-child{white-space:nowrap}
+}
+@media (max-width:900px), (orientation:portrait){
+  #main{flex-direction:column;flex:none}
+  #stage{flex:none;width:100%;height:auto;aspect-ratio:10/7}
+  #side{width:auto;flex-direction:row;flex-wrap:wrap;overflow:visible}
+  #side .card{flex:1 1 280px}
+  #studio{overflow:auto}
+  #sbody{flex-direction:column;overflow:auto;flex:1 1 auto}
+  #sstage{flex:none;width:100%;aspect-ratio:10/7;min-height:0}
+  #tools{width:auto;max-height:none;grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}
+  #opts{width:auto;max-height:none;overflow:visible}
+}
+#studio{height:100vh;height:100dvh;inset:auto;top:0;left:0;right:0}
+/* 레티나(dpr 2) 태블릿에서 캔버스가 2배로 커지던 문제: 캔버스 표시 크기를 부모에 고정 */
+#board,#sc{width:100%;height:100%;display:block}
 </style>
 </head>
 <body>
@@ -1036,12 +1076,8 @@ function applyOp(op){
     actx.save();actx.globalAlpha=op.alpha/100;actx.drawImage(tmp,0,0);actx.restore();
   }
   else if(op.kind==='erase'){actx.save();actx.globalCompositeOperation='destination-out';eraseOp(actx,op);actx.restore();}
-  else if(op.kind==='lasso'){
-    tctx.clearRect(0,0,RW,RH);tctx.save();polyClip(tctx,op.poly);tctx.drawImage(art,0,0);tctx.restore();
-    actx.save();polyClip(actx,op.poly);actx.clearRect(0,0,RW,RH);actx.restore();
-    actx.save();selXf(actx,op);actx.drawImage(tmp,0,0);actx.restore();
-  }
-  else if(op.kind==='lassoDel'){actx.save();polyClip(actx,op.poly);actx.clearRect(0,0,RW,RH);actx.restore();}
+  else if(op.kind==='lasso'){applyLasso(op,false);}
+  else if(op.kind==='lassoDel'){applyLasso(op,true);}
   else if(op.kind==='fill'){floodFill(op);}
 }
 function rebuild(){
@@ -1094,12 +1130,17 @@ function sFrame(){
   if(S.grid)drawGrid(sctx);
   sctx.drawImage(art,0,0,W,H);
   if(S.sel){
-    var sl=S.sel;sctx.save();sctx.translate(sl.ax+sl.tx,sl.ay+sl.ty);sctx.scale(sl.sc,sl.sc);sctx.translate(-sl.ax,-sl.ay);sctx.drawImage(sl.fl,0,0,W,H);sctx.restore();
-    var cs=selCorners(sl);
-    sctx.save();sctx.setLineDash([12,8]);sctx.lineWidth=3;sctx.strokeStyle=P.blue;sctx.beginPath();
-    cs.forEach(function(q,i){if(i)sctx.lineTo(q.x,q.y);else sctx.moveTo(q.x,q.y);});sctx.closePath();sctx.stroke();sctx.setLineDash([]);
-    cs.forEach(function(q){sctx.fillStyle='#fff';sctx.strokeStyle=P.blue;sctx.lineWidth=4;sctx.beginPath();sctx.rect(q.x-11,q.y-11,22,22);sctx.fill();sctx.stroke();});
-    sctx.restore();
+    var sl=S.sel;
+    sl.parts.forEach(function(pt,pi){
+      var t=ptT(pt,sl.tx,sl.ty);
+      sctx.save();sctx.translate(pt.ax+t.x,pt.ay+t.y);sctx.scale(sl.sc,sl.sc);sctx.translate(-pt.ax,-pt.ay);
+      sctx.drawImage(pt.f.c,pt.f.x0/K,pt.f.y0/K,pt.f.c.width/K,pt.f.c.height/K);sctx.restore();
+      var cs=ptCorners(pt,sl);
+      sctx.save();sctx.globalAlpha=pi?0.55:1;sctx.setLineDash([12,8]);sctx.lineWidth=3;sctx.strokeStyle=P.blue;sctx.beginPath();
+      cs.forEach(function(q,i){if(i)sctx.lineTo(q.x,q.y);else sctx.moveTo(q.x,q.y);});sctx.closePath();sctx.stroke();sctx.setLineDash([]);
+      if(!pi)cs.forEach(function(q){sctx.fillStyle='#fff';sctx.strokeStyle=P.blue;sctx.lineWidth=4;sctx.beginPath();sctx.rect(q.x-11,q.y-11,22,22);sctx.fill();sctx.stroke();});
+      sctx.restore();
+    });
   }
   if(S.lasso&&S.lasso.length>1){
     sctx.save();sctx.setLineDash([10,7]);sctx.lineWidth=3;sctx.strokeStyle=P.blue;sctx.beginPath();
@@ -1121,37 +1162,72 @@ function sFrame(){
 
 /* ---- 입력 ---- */
 function polyClip(c,poly){c.beginPath();poly.forEach(function(p,i){var x=p.x*K,y=p.y*K;if(i)c.lineTo(x,y);else c.moveTo(x,y);});c.closePath();c.clip();}
-function selXf(c,s){c.translate(K*(s.ax+s.tx),K*(s.ay+s.ty));c.scale(s.sc,s.sc);c.translate(-K*s.ax,-K*s.ay);}
-function selMap(s,p){return {x:s.ax+(p.x-s.ax)*s.sc+s.tx,y:s.ay+(p.y-s.ay)*s.sc+s.ty};}
-function selCorners(s){var b=s.box;return [{x:b.x0,y:b.y0},{x:b.x1,y:b.y0},{x:b.x1,y:b.y1},{x:b.x0,y:b.y1}].map(function(p){return selMap(s,p);});}
-function selContains(s,p){var q={x:s.ax+(p.x-s.ax-s.tx)/s.sc,y:s.ay+(p.y-s.ay-s.ty)/s.sc},b=s.box;return q.x>=b.x0&&q.x<=b.x1&&q.y>=b.y0&&q.y<=b.y1;}
+function polyBox(poly){var x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;poly.forEach(function(p){x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);});return {x0:x0,y0:y0,x1:x1,y1:y1};}
+function lin(m,v){return m?{x:m[0]*v.x+m[2]*v.y,y:m[1]*v.x+m[3]*v.y}:{x:v.x,y:v.y};}
+function linInv(m,v){if(!m)return {x:v.x,y:v.y};var a=m[0],b=m[1],c=m[2],d=m[3],det=a*d-b*c;return {x:(d*v.x-c*v.y)/det,y:(-b*v.x+a*v.y)/det};}
+/* 선택 = 원래 영역 + (대칭 모드가 켜져 있으면) 대칭축 반대쪽의 짝 영역들. 옮기거나 키우면 짝 영역은 대칭으로 따라 움직인다. */
+function mkPart(poly,m){var b=polyBox(poly);return {m:m,poly:poly,box:b,ax:(b.x0+b.x1)/2,ay:(b.y0+b.y1)/2,f:null};}
+function partsFor(poly,sym,mi){
+  var parts=[mkPart(poly,null)];
+  mi.forEach(function(idx){var m=TF[sym][idx];parts.push(mkPart(poly.map(function(p){return mapP(m,p);}),m));});
+  return parts;
+}
+function overlapRatio(A,B){
+  var w=100,h=70,ca=mk(w,h),cb=mk(w,h),ga=ca.getContext('2d',{willReadFrequently:true}),gb=cb.getContext('2d',{willReadFrequently:true});
+  function fillP(g,poly){g.beginPath();poly.forEach(function(p,i){var x=p.x/10,y=p.y/10;if(i)g.lineTo(x,y);else g.moveTo(x,y);});g.closePath();g.fillStyle='#000';g.fill();}
+  fillP(ga,A);fillP(gb,B);
+  var da=ga.getImageData(0,0,w,h).data,db=gb.getImageData(0,0,w,h).data,a=0,o=0,i;
+  for(i=3;i<da.length;i+=4){if(da[i]>127){a++;if(db[i]>127)o++;}}
+  return a?o/a:0;
+}
+function grabPart(pt){
+  var b=pt.box,x0=Math.max(0,Math.floor(b.x0*K)-2),y0=Math.max(0,Math.floor(b.y0*K)-2),x1=Math.min(RW,Math.ceil(b.x1*K)+2),y1=Math.min(RH,Math.ceil(b.y1*K)+2);
+  var w=Math.max(1,x1-x0),h=Math.max(1,y1-y0),c=mk(w,h),g=c.getContext('2d');
+  g.save();g.translate(-x0,-y0);polyClip(g,pt.poly);g.drawImage(art,0,0);g.restore();
+  pt.f={c:c,x0:x0,y0:y0};
+}
+function cutPart(pt){actx.save();polyClip(actx,pt.poly);actx.clearRect(0,0,RW,RH);actx.restore();}
+function ptT(pt,tx,ty){return pt.m?lin(pt.m,{x:tx,y:ty}):{x:tx,y:ty};}
+function pastePart(c,pt,tx,ty,sc){
+  var t=ptT(pt,tx,ty);
+  c.save();c.translate(K*(pt.ax+t.x),K*(pt.ay+t.y));c.scale(sc,sc);c.translate(-K*pt.ax,-K*pt.ay);c.drawImage(pt.f.c,pt.f.x0,pt.f.y0);c.restore();
+}
+function ptMap(pt,s,p){var t=ptT(pt,s.tx,s.ty);return {x:pt.ax+(p.x-pt.ax)*s.sc+t.x,y:pt.ay+(p.y-pt.ay)*s.sc+t.y};}
+function ptCorners(pt,s){var b=pt.box;return [{x:b.x0,y:b.y0},{x:b.x1,y:b.y0},{x:b.x1,y:b.y1},{x:b.x0,y:b.y1}].map(function(p){return ptMap(pt,s,p);});}
+function ptContains(pt,s,p){var t=ptT(pt,s.tx,s.ty),q={x:pt.ax+(p.x-pt.ax-t.x)/s.sc,y:pt.ay+(p.y-pt.ay-t.y)/s.sc},b=pt.box;return q.x>=b.x0&&q.x<=b.x1&&q.y>=b.y0&&q.y<=b.y1;}
+function applyLasso(op,del){
+  var parts=partsFor(op.poly,op.sym,op.mi);
+  parts.forEach(grabPart);parts.forEach(cutPart);
+  if(!del)parts.forEach(function(pt){pastePart(actx,pt,op.tx,op.ty,op.sc);});
+}
 function createSel(poly){
-  var x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-  poly.forEach(function(p){x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);});
-  if((x1-x0)<14||(y1-y0)<14)return;
-  var s={poly:poly,box:{x0:x0,y0:y0,x1:x1,y1:y1},ax:(x0+x1)/2,ay:(y0+y1)/2,tx:0,ty:0,sc:1,fl:mk(RW,RH),bk:mk(RW,RH)};
-  s.bk.getContext('2d').drawImage(art,0,0);
-  var fc=s.fl.getContext('2d');fc.save();polyClip(fc,poly);fc.drawImage(art,0,0);fc.restore();
-  actx.save();polyClip(actx,poly);actx.clearRect(0,0,RW,RH);actx.restore();
-  S.sel=s;buildOpts();
+  var b=polyBox(poly);if((b.x1-b.x0)<14||(b.y1-b.y0)<14)return;
+  var mi=[];
+  if(S.sym!=='none'){TF[S.sym].forEach(function(m,i){if(i===0)return;var pp=poly.map(function(p){return mapP(m,p);});if(overlapRatio(poly,pp)<0.08)mi.push(i);});}
+  var parts=partsFor(poly,S.sym,mi),sel={sym:S.sym,mi:mi,parts:parts,tx:0,ty:0,sc:1,bk:mk(RW,RH)};
+  sel.bk.getContext('2d').drawImage(art,0,0);
+  parts.forEach(grabPart);parts.forEach(cutPart);
+  S.sel=sel;buildOpts();
 }
 function commitSel(){
   var s=S.sel;if(!s)return;S.sel=null;
   if(s.tx===0&&s.ty===0&&s.sc===1){actx.clearRect(0,0,RW,RH);actx.drawImage(s.bk,0,0);buildOpts();return;}
-  actx.save();selXf(actx,s);actx.drawImage(s.fl,0,0);actx.restore();
-  pushOp({kind:'lasso',poly:s.poly,ax:s.ax,ay:s.ay,tx:s.tx,ty:s.ty,sc:s.sc});buildOpts();
+  s.parts.forEach(function(pt){pastePart(actx,pt,s.tx,s.ty,s.sc);});
+  pushOp({kind:'lasso',poly:s.parts[0].poly,sym:s.sym,mi:s.mi,tx:s.tx,ty:s.ty,sc:s.sc});buildOpts();
 }
 function cancelSel(){var s=S.sel;if(!s)return;S.sel=null;actx.clearRect(0,0,RW,RH);actx.drawImage(s.bk,0,0);buildOpts();}
-function deleteSel(){var s=S.sel;if(!s)return;S.sel=null;pushOp({kind:'lassoDel',poly:s.poly});buildOpts();}
+function deleteSel(){var s=S.sel;if(!s)return;S.sel=null;pushOp({kind:'lassoDel',poly:s.parts[0].poly,sym:s.sym,mi:s.mi});buildOpts();}
 function scaleSel(f){var s=S.sel;if(!s)return;s.sc=Math.max(.1,Math.min(8,s.sc*f));}
 function lassoDown(p){
   var s=S.sel,i;
   if(s){
-    var cs=selCorners(s);
+    var p0=s.parts[0],cs=ptCorners(p0,s);
     for(i=0;i<4;i++){
-      if(Math.hypot(p.x-cs[i].x,p.y-cs[i].y)<32){var c0=selMap(s,{x:s.ax,y:s.ay});S.selDrag={mode:'scale',sc0:s.sc,d0:Math.max(10,Math.hypot(cs[i].x-c0.x,cs[i].y-c0.y))};return;}
+      if(Math.hypot(p.x-cs[i].x,p.y-cs[i].y)<32){var c0=ptMap(p0,s,{x:p0.ax,y:p0.ay});S.selDrag={mode:'scale',sc0:s.sc,d0:Math.max(10,Math.hypot(cs[i].x-c0.x,cs[i].y-c0.y))};return;}
     }
-    if(selContains(s,p)){S.selDrag={mode:'move',px:p.x,py:p.y,tx0:s.tx,ty0:s.ty};return;}
+    for(i=0;i<s.parts.length;i++){
+      if(ptContains(s.parts[i],s,p)){S.selDrag={mode:'move',part:s.parts[i],px:p.x,py:p.y,tx0:s.tx,ty0:s.ty};return;}
+    }
     commitSel();
   }
   S.lasso=[{x:p.x,y:p.y}];
@@ -1159,8 +1235,8 @@ function lassoDown(p){
 function lassoMove(p){
   var s=S.sel,d=S.selDrag;
   if(d&&s){
-    if(d.mode==='move'){s.tx=d.tx0+p.x-d.px;s.ty=d.ty0+p.y-d.py;}
-    else{var c0=selMap(s,{x:s.ax,y:s.ay}),dist=Math.hypot(p.x-c0.x,p.y-c0.y);s.sc=Math.max(.1,Math.min(8,d.sc0*dist/d.d0));}
+    if(d.mode==='move'){var dl=linInv(d.part.m,{x:p.x-d.px,y:p.y-d.py});s.tx=d.tx0+dl.x;s.ty=d.ty0+dl.y;}
+    else{var p0=s.parts[0],c0=ptMap(p0,s,{x:p0.ax,y:p0.ay}),dist=Math.hypot(p.x-c0.x,p.y-c0.y);s.sc=Math.max(.1,Math.min(8,d.sc0*dist/d.d0));}
   }else if(S.lasso){var l=S.lasso[S.lasso.length-1];if(Math.hypot(p.x-l.x,p.y-l.y)>3)S.lasso.push({x:p.x,y:p.y});}
 }
 var sDown=false,lastT=0;
@@ -1286,7 +1362,7 @@ function buildOpts(){
   var box=document.getElementById('opts');box.textContent='';
   if(S.tool==='lasso'||S.sel){
     el('h4',null,'올가미 선택 · 옮기기 · 크기',box);
-    el('div','hint','올가미로 그림을 빙 둘러 감싸요. 안쪽을 끌면 옮겨지고, 파란 네모의 모서리를 끌면 크기가 바뀌어요.',box);
+    el('div','hint','올가미로 그림을 빙 둘러 감싸요. 안쪽을 끌면 옮겨지고, 파란 네모의 모서리를 끌면 크기가 바뀌어요. 대칭 모드가 켜져 있으면 반대쪽 그림도 대칭으로 함께 움직여요.',box);
     var lg=el('div','grid2',null,box);
     [['크게 ▲ ×1.25',function(){scaleSel(1.25);}],['작게 ▼ ×0.8',function(){scaleSel(0.8);}],['붙이기(확정)',commitSel],['선택 지우기',deleteSel],['취소',cancelSel]].forEach(function(o){
       var b=el('button','ob',o[0],lg);b.type='button';b.disabled=!S.sel;b.addEventListener('click',o[1]);
